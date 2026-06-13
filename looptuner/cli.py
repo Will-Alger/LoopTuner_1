@@ -32,6 +32,10 @@ def _cmd_run(args) -> int:
     print(render(result.recommendations))
     if args.json_out:
         _write_json(result, args.json_out)
+    if args.plot:
+        from .plots import save_png
+        save_png(result.fit, result.profile, result.recommendations, args.plot)
+        print(f"Wrote correction chart to {args.plot}")
     return 0
 
 
@@ -117,6 +121,7 @@ def main(argv=None) -> int:
     p_run.add_argument("--no-cache", action="store_true")
     p_run.add_argument("--quiet", action="store_true")
     p_run.add_argument("--json-out", help="also write recommendations as JSON")
+    p_run.add_argument("--plot", help="write a current-vs-recommended chart (PNG)")
     p_run.set_defaults(func=_cmd_run)
 
     p_profiles = sub.add_parser("profiles", help="list available Nightscout profiles")

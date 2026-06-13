@@ -23,7 +23,7 @@ from .pipeline import run as run_pipeline
 from .report import DISCLAIMER, condense_blocks
 
 try:
-    from flask import Flask, jsonify, request
+    from flask import Flask, Response, jsonify, request
 except ImportError:  # pragma: no cover - helpful message if Flask is missing
     raise SystemExit(
         "The web UI needs Flask. Install it with:  pip install flask\n"
@@ -133,7 +133,7 @@ f.onsubmit=async e=>{
 async function poll(id){
  st.innerHTML='<span class="spin"></span> Running — fetching data and sampling the model (this can take 30–120s)…';
  const r=await fetch('/status/'+id); const j=await r.json();
- if(j.state==='done'){st.textContent='Done.';go.disabled=false;render(j.result);}
+ if(j.state==='done'){st.textContent='Done.';go.disabled=false;render(j.result,id);}
  else if(j.state==='error'){st.textContent='Error: '+j.error;go.disabled=false;}
  else setTimeout(()=>poll(id),1500);
 }
@@ -147,13 +147,16 @@ function tbl(title,unit,blocks){
  }
  return h+'</table>';
 }
-function render(d){
+function render(d,id){
  const s=d.summary;
  let h='<div class="summary">'+
   card('Typical ISF',s.population_isf+' mg/dL/U')+
   card('Typical carb ratio',s.population_carb_ratio+' g/U')+
   card('Total daily basal',s.total_daily_basal+' U')+
   card('Model residual',s.obs_sd_mgdl+' mg/dL')+'</div>';
+ h+='<h3>How it adjusted each setting</h3>';
+ h+='<img src="/plot/'+id+'.png" alt="current vs recommended chart" style="width:100%;border:1px solid #e2e6ef;border-radius:8px">';
+ h+='<p class="muted">Grey dashed = your current schedule, blue = model estimate with its 94% credible band, green = recommended. Red dots mark hours where the data supports a change. Wide blue bands (often overnight) are hours the data can\\'t pin down — left unchanged on purpose.</p>';
  h+='<p class="muted">Rows highlighted in yellow are changes the data actually supports (your current value falls outside the 94% credible interval). Others are left at your current setting.</p>';
  h+=tbl('Insulin sensitivity (ISF)','mg/dL/U',d.isf);
  h+=tbl('Carb ratio','g/U',d.carb_ratio);
@@ -233,7 +236,13 @@ def run():
 def _worker(job_id: str, cfg: LoopTunerConfig):
     try:
         result = run_pipeline(cfg, use_cache=False, progressbar=False)
-        _JOBS[job_id] = {"state": "done", "result": _serialize(result.recommendations)}
+        from .plots import render_png
+        png = render_png(result.fit, result.profile, result.recommendations)
+        _JOBS[job_id] = {
+            "state": "done",
+            "result": _serialize(result.recommendations),
+            "png": png,
+        }
     except Exception as err:  # surface a readable message to the browser
         _JOBS[job_id] = {"state": "error", "error": f"{type(err).__name__}: {err}"}
 
@@ -256,7 +265,18 @@ def status(job_id):
     job = _JOBS.get(job_id)
     if job is None:
         return jsonify({"state": "error", "error": "unknown job"}), 404
-    return jsonify(job)
+    # Exclude the raw PNG bytes (served separately) so the payload is JSON.
+    payload = {k: v for k, v in job.items() if k != "png"}
+    payload["has_chart"] = "png" in job
+    return jsonify(payload)
+
+
+@app.route("/plot/<job_id>.png")
+def plot(job_id):
+    job = _JOBS.get(job_id)
+    if not job or "png" not in job:
+        return "not found", 404
+    return Response(job["png"], mimetype="image/png")
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765):

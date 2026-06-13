@@ -112,8 +112,12 @@ python -m looptuner.cli ui      # then open http://127.0.0.1:8765
 ```
 
 Enter your Nightscout URL and secret (or token), pick how many days of history,
-and click **Run analysis**. The page shows ISF, carb-ratio, and basal tables
-(changes the data supports are highlighted) plus suggested safety limits. The
+and click **Run analysis**. The page shows a **chart** of current vs.
+recommended for each setting (with credible-interval bands and markers on
+data-supported changes), then ISF, carb-ratio, and basal tables (changes the
+data supports are highlighted) plus suggested safety limits.
+
+From the CLI, add `--plot chart.png` to `run` to save the same figure. The
 UI binds to localhost only; your secret is held in memory for the Nightscout
 call and never written to disk or logged.
 
