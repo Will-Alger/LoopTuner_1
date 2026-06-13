@@ -130,6 +130,21 @@ python -m looptuner.cli run --config config.json --json-out recommendations.json
 The first run caches the raw Nightscout pull under `.looptuner_cache/`; re-runs
 are instant and offline. Add `--no-cache` to refresh.
 
+### Choosing a profile
+
+Nightscout can store several named profiles (e.g. `Weekday`, `Sick day`). By
+default LoopTuner uses the site's active/default profile. To list and select:
+
+```bash
+python -m looptuner.cli profiles --config config.json     # list available
+python -m looptuner.cli run --config config.json --profile "Sick day"
+```
+
+Or set `"profile_name"` in the config's `nightscout` block. In the web UI,
+click **Load profiles** to populate the dropdown after entering your URL and
+secret. The chosen profile supplies the current basal/ISF/CR schedules used as
+the comparison baseline and to reconstruct insulin delivery.
+
 ### Example output (abridged)
 
 ```

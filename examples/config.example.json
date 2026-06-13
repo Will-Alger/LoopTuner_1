@@ -4,7 +4,8 @@
     "api_secret": "your-api-secret-passphrase",
     "token": null,
     "days": 30,
-    "cache_dir": ".looptuner_cache"
+    "cache_dir": ".looptuner_cache",
+    "profile_name": null
   },
   "pharmacology": {
     "insulin_peak_min": 75.0,

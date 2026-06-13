@@ -26,10 +26,29 @@ def _cmd_run(args) -> int:
     cfg = LoopTunerConfig.from_file(args.config)
     if args.days:
         cfg.nightscout.days = args.days
+    if args.profile:
+        cfg.nightscout.profile_name = args.profile
     result = run(cfg, use_cache=not args.no_cache, progressbar=not args.quiet)
     print(render(result.recommendations))
     if args.json_out:
         _write_json(result, args.json_out)
+    return 0
+
+
+def _cmd_profiles(args) -> int:
+    from .nightscout import NightscoutClient
+    from .profile import list_profiles
+
+    cfg = LoopTunerConfig.from_file(args.config)
+    docs = NightscoutClient(cfg.nightscout).profile(use_cache=not args.no_cache)
+    names, default = list_profiles(docs)
+    if not names:
+        print("No named profiles found in Nightscout.")
+        return 0
+    print("Available Nightscout profiles:")
+    for n in names:
+        print(f"  {'* ' if n == default else '  '}{n}")
+    print("\n(* = site default. Use:  run --profile <name>)")
     return 0
 
 
@@ -94,10 +113,16 @@ def main(argv=None) -> int:
     p_run = sub.add_parser("run", help="fetch Nightscout data and recommend")
     p_run.add_argument("--config", required=True, help="path to JSON config")
     p_run.add_argument("--days", type=int, help="override history window")
+    p_run.add_argument("--profile", help="Nightscout profile name (default: site default)")
     p_run.add_argument("--no-cache", action="store_true")
     p_run.add_argument("--quiet", action="store_true")
     p_run.add_argument("--json-out", help="also write recommendations as JSON")
     p_run.set_defaults(func=_cmd_run)
+
+    p_profiles = sub.add_parser("profiles", help="list available Nightscout profiles")
+    p_profiles.add_argument("--config", required=True, help="path to JSON config")
+    p_profiles.add_argument("--no-cache", action="store_true")
+    p_profiles.set_defaults(func=_cmd_profiles)
 
     p_ui = sub.add_parser("ui", help="launch the local web UI (no config file)")
     p_ui.add_argument("--host", default="127.0.0.1")

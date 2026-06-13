@@ -21,6 +21,9 @@ class NightscoutConfig:
     token: Optional[str] = None        # access token (alternative to secret)
     days: int = 30                     # how much history to pull
     cache_dir: str = ".looptuner_cache"
+    # Which named profile from the Nightscout store to use. None -> the site's
+    # default profile. Nightscout can hold several (e.g. "Weekday", "Sick day").
+    profile_name: Optional[str] = None
 
 
 @dataclass

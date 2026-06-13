@@ -81,6 +81,18 @@ review by your licensed clinician.</div>
  </div>
  <label>Secret / token</label>
  <input name="auth_value" type="password" placeholder="your passphrase or token" required>
+ <label>Nightscout profile</label>
+ <div class="row">
+  <div style="flex:3">
+   <select name="profile_name" id="profsel">
+     <option value="">Site default</option>
+   </select>
+  </div>
+  <div style="flex:1">
+   <button type="button" id="loadprof" style="margin-top:0;width:100%;background:#5a6478">Load profiles</button>
+  </div>
+ </div>
+ <span class="muted" id="profmsg"></span>
  <button type="submit" id="go">Run analysis</button>
 </form>
 
@@ -89,7 +101,26 @@ review by your licensed clinician.</div>
 
 <script>
 const f=document.getElementById('f'), go=document.getElementById('go'),
-      st=document.getElementById('status'), out=document.getElementById('out');
+      st=document.getElementById('status'), out=document.getElementById('out'),
+      loadprof=document.getElementById('loadprof'), profsel=document.getElementById('profsel'),
+      profmsg=document.getElementById('profmsg');
+loadprof.onclick=async()=>{
+ const body=Object.fromEntries(new FormData(f));
+ if(!body.url||!body.auth_value){profmsg.textContent='Enter URL and secret/token first.';return;}
+ profmsg.textContent='Loading profiles…'; loadprof.disabled=true;
+ try{
+  const r=await fetch('/profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(j.error){profmsg.textContent='Error: '+j.error;}
+  else if(!j.names||!j.names.length){profmsg.textContent='No named profiles found.';}
+  else{
+   profsel.innerHTML='<option value="">Site default ('+(j.default||'?')+')</option>';
+   for(const n of j.names){const o=document.createElement('option');o.value=n;o.textContent=(n===j.default?n+' (default)':n);profsel.appendChild(o);}
+   profmsg.textContent='Loaded '+j.names.length+' profile(s).';
+  }
+ }catch(e){profmsg.textContent='Error: '+e;}
+ loadprof.disabled=false;
+};
 f.onsubmit=async e=>{
  e.preventDefault(); go.disabled=true; out.innerHTML='';
  st.innerHTML='<span class="spin"></span> Submitting…';
@@ -145,24 +176,52 @@ def index():
     return PAGE
 
 
-@app.route("/run", methods=["POST"])
-def run():
-    data = request.get_json(force=True)
+def _nightscout_from_request(data: dict) -> NightscoutConfig:
     url = (data.get("url") or "").strip()
     auth_type = data.get("auth_type", "api_secret")
     auth_value = (data.get("auth_value") or "").strip()
     if not url or not auth_value:
-        return jsonify({"error": "URL and secret/token are required"}), 400
+        raise ValueError("URL and secret/token are required")
     try:
         days = max(7, min(int(data.get("days", 30)), 180))
     except (TypeError, ValueError):
         days = 30
-
     ns = NightscoutConfig(url=url, days=days)
     if auth_type == "token":
         ns.token = auth_value
     else:
         ns.api_secret = auth_value
+    name = (data.get("profile_name") or "").strip()
+    if name:
+        ns.profile_name = name
+    return ns
+
+
+@app.route("/profiles", methods=["POST"])
+def profiles():
+    from .nightscout import NightscoutClient
+    from .profile import list_profiles
+
+    data = request.get_json(force=True)
+    try:
+        ns = _nightscout_from_request(data)
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    try:
+        docs = NightscoutClient(ns).profile(use_cache=False)
+        names, default = list_profiles(docs)
+    except Exception as err:
+        return jsonify({"error": f"{type(err).__name__}: {err}"}), 502
+    return jsonify({"names": names, "default": default})
+
+
+@app.route("/run", methods=["POST"])
+def run():
+    data = request.get_json(force=True)
+    try:
+        ns = _nightscout_from_request(data)
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
     cfg = LoopTunerConfig(nightscout=ns)
 
     job_id = uuid.uuid4().hex

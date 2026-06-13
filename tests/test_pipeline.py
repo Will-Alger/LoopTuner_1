@@ -4,8 +4,25 @@ import numpy as np
 
 from looptuner.config import GridConfig, PharmacologyConfig
 from looptuner.preprocess import build_dataset
-from looptuner.profile import Profile, schedule_value_at
+from looptuner.profile import Profile, list_profiles, schedule_value_at
 from looptuner.synthetic import generate
+
+
+def test_profile_selection_by_name():
+    docs = generate(days=2, seed=1)["profile"]
+    docs[0]["store"]["Sick day"] = dict(docs[0]["store"]["Default"])
+    docs[0]["store"]["Sick day"]["basal"] = [
+        {"time": "00:00", "value": 1.5, "timeAsSeconds": 0}
+    ]
+    names, default = list_profiles(docs)
+    assert set(names) == {"Default", "Sick day"}
+    assert default == "Default"
+    assert Profile.from_nightscout(docs, name="Sick day").basal[0][1] == 1.5
+    # Default still works, and an unknown name errors clearly.
+    assert Profile.from_nightscout(docs).basal[0][1] != 1.5
+    import pytest
+    with pytest.raises(ValueError):
+        Profile.from_nightscout(docs, name="Nonexistent")
 
 
 def test_schedule_lookup():

@@ -24,6 +24,12 @@ class PipelineResult:
 
 def _resolve_profile(cfg: LoopTunerConfig, profile_docs) -> Profile:
     if profile_docs:
+        # An explicitly requested profile name should error if missing rather
+        # than silently falling back, so the user knows their choice was wrong.
+        if cfg.nightscout.profile_name:
+            return Profile.from_nightscout(
+                profile_docs, name=cfg.nightscout.profile_name
+            )
         try:
             return Profile.from_nightscout(profile_docs)
         except (ValueError, KeyError):

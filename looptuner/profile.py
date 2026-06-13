@@ -47,17 +47,25 @@ class Profile:
     timezone: Optional[str] = None
 
     @classmethod
-    def from_nightscout(cls, profile_docs: list) -> "Profile":
+    def from_nightscout(cls, profile_docs: list, name: Optional[str] = None) -> "Profile":
         """Build from the list returned by ``/api/v1/profile.json``.
 
-        Uses the most recent document's default profile store.
+        Uses the most recent document. ``name`` selects which profile from that
+        document's ``store`` to use; if ``None`` (or not found), the site's
+        ``defaultProfile`` is used.
         """
         if not profile_docs:
             raise ValueError("no profile documents returned by Nightscout")
         doc = profile_docs[0]
         default_name = doc.get("defaultProfile")
         store = doc.get("store", {})
-        if default_name and default_name in store:
+        if name and name in store:
+            p = store[name]
+        elif name and name not in store and store:
+            raise ValueError(
+                f"profile '{name}' not found; available: {sorted(store)}"
+            )
+        elif default_name and default_name in store:
             p = store[default_name]
         elif store:
             p = next(iter(store.values()))
@@ -90,6 +98,15 @@ class Profile:
         if basal and basal[0][0] != 0:
             basal.insert(0, (0, basal[0][1]))
         return cls(basal=basal, isf=[], carb_ratio=[])
+
+
+def list_profiles(profile_docs: list) -> tuple[list[str], Optional[str]]:
+    """Return ``(available_profile_names, default_name)`` from a profile pull."""
+    if not profile_docs:
+        return [], None
+    doc = profile_docs[0]
+    store = doc.get("store", {}) or {}
+    return list(store.keys()), doc.get("defaultProfile")
 
 
 def schedule_value_at(schedule: list[tuple[int, float]], second_of_day: float) -> float:
