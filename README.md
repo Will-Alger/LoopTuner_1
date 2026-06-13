@@ -102,6 +102,21 @@ Typical recovery on the synthetic benchmark: **ISF ≈ 14%**, **carb ratio ≈ 1
 with the residual ISF error concentrated entirely in fasting hours, exactly
 where the data cannot identify it.
 
+## Web UI (no config file)
+
+Prefer a form over editing JSON? Launch the local UI:
+
+```bash
+pip install -e ".[ui]"          # or: pip install flask
+python -m looptuner.cli ui      # then open http://127.0.0.1:8765
+```
+
+Enter your Nightscout URL and secret (or token), pick how many days of history,
+and click **Run analysis**. The page shows ISF, carb-ratio, and basal tables
+(changes the data supports are highlighted) plus suggested safety limits. The
+UI binds to localhost only; your secret is held in memory for the Nightscout
+call and never written to disk or logged.
+
 ## Run against your Nightscout
 
 1. Copy `examples/config.example.json` to `config.json` and fill in your

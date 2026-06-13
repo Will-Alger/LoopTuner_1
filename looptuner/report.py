@@ -11,22 +11,39 @@ DISCLAIMER = (
 )
 
 
-def _condense(recs: list[HourlyRecommendation], unit: str) -> list[str]:
-    """Collapse 24 hourly values into contiguous blocks for readability."""
-    lines = []
+def condense_blocks(recs: list[HourlyRecommendation]) -> list[dict]:
+    """Collapse 24 hourly recommendations into contiguous-value blocks.
+
+    Returns a list of ``{start, end, label, current, recommended, confident}``.
+    Shared by the text report and the web UI.
+    """
+    blocks = []
     start = 0
     for h in range(1, 25):
         prev = recs[h - 1]
-        change = h == 24 or recs[h].recommended != prev.recommended
-        if change:
+        if h == 24 or recs[h].recommended != prev.recommended:
             end = h
-            label = f"{start:02d}:00-{end % 24:02d}:00"
-            cur = "n/a" if prev.current is None else f"{prev.current:g}"
-            flag = "  *" if any(r.confident for r in recs[start:end]) else ""
-            lines.append(
-                f"  {label}  current={cur:>6}  ->  {prev.recommended:g} {unit}{flag}"
-            )
+            blocks.append({
+                "start": start,
+                "end": end % 24,
+                "label": f"{start:02d}:00-{end % 24:02d}:00",
+                "current": prev.current,
+                "recommended": prev.recommended,
+                "confident": any(r.confident for r in recs[start:end]),
+            })
             start = h
+    return blocks
+
+
+def _condense(recs: list[HourlyRecommendation], unit: str) -> list[str]:
+    """Collapse 24 hourly values into contiguous blocks for readability."""
+    lines = []
+    for b in condense_blocks(recs):
+        cur = "n/a" if b["current"] is None else f"{b['current']:g}"
+        flag = "  *" if b["confident"] else ""
+        lines.append(
+            f"  {b['label']}  current={cur:>6}  ->  {b['recommended']:g} {unit}{flag}"
+        )
     return lines
 
 

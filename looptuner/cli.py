@@ -33,6 +33,12 @@ def _cmd_run(args) -> int:
     return 0
 
 
+def _cmd_ui(args) -> int:
+    from .webui import serve
+    serve(host=args.host, port=args.port)
+    return 0
+
+
 def _cmd_demo(args) -> int:
     from .synthetic import generate
     import numpy as np
@@ -92,6 +98,11 @@ def main(argv=None) -> int:
     p_run.add_argument("--quiet", action="store_true")
     p_run.add_argument("--json-out", help="also write recommendations as JSON")
     p_run.set_defaults(func=_cmd_run)
+
+    p_ui = sub.add_parser("ui", help="launch the local web UI (no config file)")
+    p_ui.add_argument("--host", default="127.0.0.1")
+    p_ui.add_argument("--port", type=int, default=8765)
+    p_ui.set_defaults(func=_cmd_ui)
 
     p_demo = sub.add_parser("demo", help="run on synthetic data and report recovery")
     p_demo.add_argument("--days", type=int, default=21)
