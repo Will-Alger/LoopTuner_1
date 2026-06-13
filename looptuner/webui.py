@@ -76,7 +76,7 @@ review by your licensed clinician.</div>
   </div>
   <div>
    <label>Days of history</label>
-   <input name="days" type="number" value="30" min="7" max="180">
+   <input name="days" type="number" value="30" min="3" max="180">
   </div>
  </div>
  <label>Secret / token</label>
@@ -183,7 +183,7 @@ def _nightscout_from_request(data: dict) -> NightscoutConfig:
     if not url or not auth_value:
         raise ValueError("URL and secret/token are required")
     try:
-        days = max(7, min(int(data.get("days", 30)), 180))
+        days = max(3, min(int(data.get("days", 30)), 180))
     except (TypeError, ValueError):
         days = 30
     ns = NightscoutConfig(url=url, days=days)
