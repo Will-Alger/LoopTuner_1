@@ -143,15 +143,21 @@ def fit(
             observed=data.delta_bg,
         )
 
-        idata = pm.sample(
+        sample_kwargs = dict(
             draws=sampler.draws,
             tune=sampler.tune,
             chains=sampler.chains,
             target_accept=sampler.target_accept,
             random_seed=sampler.seed,
-            progressbar=progressbar,
             compute_convergence_checks=True,
         )
+        try:
+            idata = pm.sample(progressbar=progressbar, **sample_kwargs)
+        except ImportError:
+            # PyMC's rich progress bar optionally imports matplotlib; if that
+            # (or any progress-bar dependency) is missing, sample without it
+            # rather than failing the whole run.
+            idata = pm.sample(progressbar=False, **sample_kwargs)
 
     post = idata.posterior
     isf_mean = post["isf"].mean(dim=("chain", "draw")).to_numpy()
