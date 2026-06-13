@@ -190,9 +190,32 @@ def fit(
 
 
 def _hdi(az, idata, var: str, prob: float = 0.94) -> np.ndarray:
-    hdi = az.hdi(idata, var_names=[var], hdi_prob=prob)[var]
-    # dims: (var_dim, hdi=2)
-    return hdi.to_numpy()
+    """Return the (n, 2) credible interval for ``var``.
+
+    arviz renamed the probability kwarg (``hdi_prob`` -> ``prob``) across
+    versions, so try both. If ``az.hdi`` is unavailable or incompatible, fall
+    back to an equal-tailed quantile interval computed directly from the
+    posterior draws.
+    """
+    for kwargs in ({"hdi_prob": prob}, {"prob": prob}):
+        try:
+            hdi = np.asarray(az.hdi(idata, var_names=[var], **kwargs)[var].to_numpy())
+            # Normalize to (n, 2) regardless of arviz's axis ordering.
+            if hdi.ndim == 2 and hdi.shape[0] == 2 and hdi.shape[1] != 2:
+                hdi = hdi.T
+            return hdi
+        except TypeError:
+            continue
+        except Exception:
+            break
+
+    # Manual fallback: equal-tailed interval over chain+draw samples. Posterior
+    # dims are (chain, draw, var_dim); collapse the sampling dims.
+    arr = idata.posterior[var].to_numpy()
+    arr = arr.reshape(-1, arr.shape[-1])  # (chain*draw, n)
+    lo = (1 - prob) / 2
+    bounds = np.quantile(arr, [lo, 1 - lo], axis=0)  # (2, n)
+    return bounds.T
 
 
 def _diagnostics(az, idata) -> dict:
