@@ -160,7 +160,22 @@ function render(d,id){
   card('Typical carb ratio',s.population_carb_ratio+' g/U')+
   card('Total daily basal',s.total_daily_basal+' U')+
   card('Model residual',s.obs_sd_mgdl+' mg/dL')+'</div>';
- h+='<h3>How it adjusted each setting</h3>';
+ if(d.population&&d.population.length){
+  h+='<h3>Whole-day recommendation</h3>';
+  h+='<p class="muted">Pooled over all your data, so it works even when individual hours are too sparse for an hourly answer.</p>';
+  h+='<table><tr><th>Setting</th><th>Current</th><th>Suggested</th><th>94% CI</th><th></th></tr>';
+  for(const p of d.population){
+   const cur=(p.current==null?'—':(p.unit==='x'?'current':p.current));
+   let sug, tag;
+   if(p.confident){ sug=p.detail?p.detail:(p.recommended+' '+(p.unit==='x'?'×':p.unit)); tag='<span class="up">change</span>'; }
+   else { sug='keep current'; tag='<span class="muted">'+p.note+'</span>'; }
+   const ci=p.hdi_low.toFixed(2)+'–'+p.hdi_high.toFixed(2);
+   h+=`<tr class="${p.confident?'chg':''}"><td>${p.name}</td><td>${cur}</td><td>${sug}</td><td>${ci}</td><td>${tag}</td></tr>`;
+  }
+  h+='</table>';
+ }
+ h+='<h3>Per-hour breakdown</h3>';
+ h+='<h4 style="margin:2px 0">How it adjusted each setting</h4>';
  h+='<img src="/plot/'+id+'.png" alt="current vs recommended chart" style="width:100%;border:1px solid #e2e6ef;border-radius:8px">';
  h+='<p class="muted">Grey dashed = your current schedule, blue = model estimate with its 94% credible band, green = recommended. Red dots mark hours where the data supports a change. Wide blue bands (often overnight) are hours the data can\\'t pin down — left unchanged on purpose.</p>';
  h+='<p class="muted">Rows highlighted in yellow are changes the data actually supports (your current value falls outside the 94% credible interval). Others are left at your current setting.</p>';
@@ -294,6 +309,7 @@ def _serialize(recs, report=None) -> dict:
         "max_basal": recs.max_basal,
         "max_bolus": recs.max_bolus,
         "suspend_threshold": recs.suspend_threshold,
+        "population": [asdict(p) for p in recs.population],
         "isf": condense_blocks(recs.isf),
         "carb_ratio": condense_blocks(recs.carb_ratio),
         "basal": condense_blocks(recs.basal),

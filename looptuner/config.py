@@ -105,6 +105,11 @@ class SafetyConfig:
     min_confidence: float = 0.75
     # Never recommend changing a setting by more than this fraction at once.
     max_relative_change: float = 0.30
+    # Minimum analysis windows in an hour before a *per-hour* change is judged
+    # (below this the hour falls back to the pooled estimate). ~30-min windows
+    # give 2/hour/day, so 20 ~= 10 days. The whole-day recommendation needs far
+    # less data and is always reported.
+    min_data_per_hour: int = 20
 
 
 @dataclass

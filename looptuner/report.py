@@ -72,6 +72,21 @@ def render(recs: Recommendations) -> str:
         )
     out.append("")
 
+    out.append("Whole-day recommendation (works with limited data)")
+    out.append("-" * 72)
+    for p in recs.population:
+        cur = "n/a" if p.current is None else f"{p.current:g}"
+        if p.confident:
+            if p.detail:
+                out.append(f"  {p.name}: CHANGE — {p.detail}")
+            else:
+                out.append(f"  {p.name}: {cur} -> {p.recommended:g} {p.unit}  (CHANGE)")
+        else:
+            out.append(f"  {p.name}: keep {cur} {p.unit if p.unit!='x' else ''}".rstrip()
+                       + f"  ({p.note})")
+        out.append(f"      estimate {p.estimated:.2f} (94% CI {p.hdi_low:.2f}–{p.hdi_high:.2f})")
+    out.append("")
+
     out.append("Insulin sensitivity factor (ISF)   [* = data-supported change]")
     out.append("-" * 72)
     out.extend(_condense(recs.isf, "mg/dL/U"))

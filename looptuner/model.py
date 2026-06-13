@@ -70,10 +70,15 @@ class FitResult:
     egp: np.ndarray            # (N_HOURS,) mg/dL per hr = isf*basal
     egp_hdi: np.ndarray
     isf_population: float       # shared mean
+    isf_population_hdi: np.ndarray          # (2,) 94% CI
     csf_population: float
+    carb_ratio_population: float            # isf_pop / csf_pop
+    carb_ratio_population_hdi: np.ndarray   # (2,)
     basal_scale: float         # global multiplier vs scheduled basal
+    basal_scale_hdi: np.ndarray             # (2,)
     obs_sd: float
     n_per_hour: np.ndarray     # data count per hour (drives confidence)
+    n_carb_per_hour: np.ndarray             # windows with carb absorption per hour
     idata: object = None       # arviz InferenceData (full posterior)
     diagnostics: dict = None
 
@@ -168,6 +173,17 @@ def fit(
 
     diagnostics = _diagnostics(az, idata)
 
+    # Whole-day (population) parameters, pooled over all windows. These stay
+    # well-identified even when no single hour has enough data, so they drive
+    # the whole-day recommendation. Equal-tailed 94% CI straight from draws.
+    isf_pop_draws = np.exp(post["log_isf_mu"].to_numpy().ravel())
+    csf_pop_draws = np.exp(post["log_csf_mu"].to_numpy().ravel())
+    cr_pop_draws = isf_pop_draws / csf_pop_draws
+    scale_draws = np.exp(post["log_basal_scale"].to_numpy().ravel())
+    n_carb_per_hour = np.array(
+        [int((data.carb_act[hour_idx == h] > 0).sum()) for h in range(N_HOURS)]
+    )
+
     return FitResult(
         isf=isf_mean,
         isf_hdi=_hdi(az, idata, "isf"),
@@ -179,14 +195,24 @@ def fit(
         basal_hdi=_hdi(az, idata, "basal"),
         egp=egp_mean,
         egp_hdi=_hdi(az, idata, "egp"),
-        isf_population=float(np.exp(post["log_isf_mu"].mean())),
-        csf_population=float(np.exp(post["log_csf_mu"].mean())),
-        basal_scale=float(np.exp(post["log_basal_scale"].mean())),
+        isf_population=float(np.mean(isf_pop_draws)),
+        isf_population_hdi=_ci(isf_pop_draws),
+        csf_population=float(np.mean(csf_pop_draws)),
+        carb_ratio_population=float(np.mean(cr_pop_draws)),
+        carb_ratio_population_hdi=_ci(cr_pop_draws),
+        basal_scale=float(np.mean(scale_draws)),
+        basal_scale_hdi=_ci(scale_draws),
         obs_sd=float(post["obs_sd"].mean()),
         n_per_hour=counts,
+        n_carb_per_hour=n_carb_per_hour,
         idata=idata,
         diagnostics=diagnostics,
     )
+
+
+def _ci(draws: np.ndarray, prob: float = 0.94) -> np.ndarray:
+    lo = (1 - prob) / 2
+    return np.quantile(draws, [lo, 1 - lo])
 
 
 def _hdi(az, idata, var: str, prob: float = 0.94) -> np.ndarray:

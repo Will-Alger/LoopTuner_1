@@ -39,10 +39,27 @@ class HourlyRecommendation:
 
 
 @dataclass
+class PopulationRecommendation:
+    """A whole-day (pooled) recommendation, usable even from limited data."""
+
+    name: str                  # "ISF", "Carb ratio", "Basal (overall)"
+    unit: str
+    current: Optional[float]
+    estimated: float
+    hdi_low: float
+    hdi_high: float
+    recommended: float
+    confident: bool
+    note: str
+    detail: str = ""           # human-readable extra (e.g. "+12% basal")
+
+
+@dataclass
 class Recommendations:
     isf: list[HourlyRecommendation]
     carb_ratio: list[HourlyRecommendation]
     basal: list[HourlyRecommendation]
+    population: list[PopulationRecommendation]
     max_basal: float
     max_bolus: float
     suspend_threshold: Optional[float]
@@ -97,12 +114,100 @@ def _guardrail(
     return value, True, note
 
 
+def _schedule_average(schedule) -> Optional[float]:
+    """Time-average of a daily schedule (mean over 24 hourly samples)."""
+    if not schedule:
+        return None
+    return float(np.mean([schedule_value_at(schedule, h * 3600 + 1800) for h in range(24)]))
+
+
+def _population_guardrail(current, estimated, hdi, cfg, round_step, enough_data, sparse_note):
+    low, high = float(hdi[0]), float(hdi[1])
+    if not enough_data:
+        return (round(estimated, 2), False, sparse_note)
+    if current is None:
+        return (_round_to(estimated, round_step), True, "no current value")
+    confident = not (low <= current <= high)
+    if not confident:
+        return (_round_to(current, round_step), False, "consistent with current")
+    max_delta = abs(current) * cfg.max_relative_change
+    delta = np.clip(estimated - current, -max_delta, max_delta)
+    capped = abs(estimated - current) > max_delta
+    return (_round_to(current + delta, round_step), True,
+            "capped to max change" if capped else "adjusted")
+
+
+def _build_population(fit, profile, cfg, total_windows, total_carb_windows):
+    recs: list[PopulationRecommendation] = []
+
+    # ISF (whole-day): pooled over all windows; needs reasonable insulin signal.
+    cur_isf = _schedule_average(profile.isf)
+    enough = total_windows >= 40
+    val, conf, note = _population_guardrail(
+        cur_isf, fit.isf_population, fit.isf_population_hdi, cfg,
+        cfg.isf_round, enough, "not enough data yet",
+    )
+    recs.append(PopulationRecommendation(
+        "Insulin sensitivity (ISF)", "mg/dL/U", cur_isf, fit.isf_population,
+        float(fit.isf_population_hdi[0]), float(fit.isf_population_hdi[1]),
+        val, conf, note,
+    ))
+
+    # Carb ratio (whole-day): needs enough windows that actually contained carbs.
+    cur_cr = _schedule_average(profile.carb_ratio)
+    enough_carb = total_carb_windows >= 30
+    val, conf, note = _population_guardrail(
+        cur_cr, fit.carb_ratio_population, fit.carb_ratio_population_hdi, cfg,
+        cfg.carb_ratio_round, enough_carb,
+        f"insufficient carb data ({total_carb_windows} windows; need ~30)",
+    )
+    recs.append(PopulationRecommendation(
+        "Carb ratio (CR)", "g/U", cur_cr, fit.carb_ratio_population,
+        float(fit.carb_ratio_population_hdi[0]), float(fit.carb_ratio_population_hdi[1]),
+        val, conf, note,
+    ))
+
+    # Basal (overall scale): the single most data-efficient signal -- does the
+    # whole basal schedule need to move up or down? current scale == 1.0.
+    scale_hdi = fit.basal_scale_hdi
+    enough = total_windows >= 40
+    confident = enough and not (scale_hdi[0] <= 1.0 <= scale_hdi[1])
+    cur_total = None
+    if profile.basal:
+        cur_total = sum(
+            schedule_value_at(profile.basal, h * 3600 + 1800) for h in range(24)
+        )
+    if not enough:
+        note, scale_val, detail = "not enough data yet", 1.0, ""
+    elif not confident:
+        note, scale_val, detail = "consistent with current", 1.0, "basal schedule looks right"
+    else:
+        capped_scale = float(np.clip(
+            fit.basal_scale, 1 - cfg.max_relative_change, 1 + cfg.max_relative_change
+        ))
+        scale_val = capped_scale
+        pct = (capped_scale - 1) * 100
+        if cur_total is not None:
+            detail = f"scale all basal rates by {pct:+.0f}% (daily basal {cur_total:.1f} → {cur_total * capped_scale:.1f} U)"
+        else:
+            detail = f"scale all basal rates by {pct:+.0f}%"
+        note = "adjusted"
+    recs.append(PopulationRecommendation(
+        "Basal (overall)", "x", 1.0, float(fit.basal_scale),
+        float(scale_hdi[0]), float(scale_hdi[1]),
+        round(scale_val, 3), confident, note, detail,
+    ))
+    return recs
+
+
 def build_recommendations(
     fit: FitResult,
     profile: Profile,
     cfg: SafetyConfig,
-    min_data_per_hour: int = 20,
+    min_data_per_hour: Optional[int] = None,
 ) -> Recommendations:
+    if min_data_per_hour is None:
+        min_data_per_hour = getattr(cfg, "min_data_per_hour", 20)
     isf_recs: list[HourlyRecommendation] = []
     cr_recs: list[HourlyRecommendation] = []
     basal_recs: list[HourlyRecommendation] = []
@@ -163,11 +268,18 @@ def build_recommendations(
 
     suspend_threshold = profile.target_low
 
+    total_windows = int(fit.n_per_hour.sum())
+    total_carb_windows = int(fit.n_carb_per_hour.sum())
+    population = _build_population(
+        fit, profile, cfg, total_windows, total_carb_windows
+    )
+
     summary = {
         "population_isf": round(fit.isf_population, 1),
-        "population_carb_ratio": round(fit.isf_population / fit.csf_population, 1),
+        "population_carb_ratio": round(fit.carb_ratio_population, 1),
         "mean_recommended_basal": round(float(np.mean(rec_basal_values)), 3),
         "total_daily_basal": round(float(np.sum(rec_basal_values)), 2),
+        "basal_scale": round(fit.basal_scale, 3),
         "obs_sd_mgdl": round(fit.obs_sd, 1),
         "diagnostics": fit.diagnostics,
     }
@@ -176,6 +288,7 @@ def build_recommendations(
         isf=isf_recs,
         carb_ratio=cr_recs,
         basal=basal_recs,
+        population=population,
         max_basal=max_basal,
         max_bolus=max_bolus,
         suspend_threshold=suspend_threshold,
