@@ -1,0 +1,43 @@
+{
+  "nightscout": {
+    "url": "https://YOUR-SITE.up.railway.app",
+    "api_secret": "your-api-secret-passphrase",
+    "token": null,
+    "days": 30,
+    "cache_dir": ".looptuner_cache"
+  },
+  "pharmacology": {
+    "insulin_peak_min": 75.0,
+    "insulin_duration_min": 360.0,
+    "carb_default_absorption_min": 180.0,
+    "carb_delay_min": 10.0
+  },
+  "grid": {
+    "interval_min": 5,
+    "window_min": 30,
+    "min_coverage": 0.6,
+    "max_abs_delta": 80.0
+  },
+  "priors": {
+    "isf_mean": 50.0,
+    "csf_mean": 4.0,
+    "basal_scale_sd_log": 0.4
+  },
+  "sampler": {
+    "draws": 1000,
+    "tune": 1000,
+    "chains": 4,
+    "target_accept": 0.9
+  },
+  "safety": {
+    "max_basal_multiplier": 3.5,
+    "max_relative_change": 0.30,
+    "min_confidence": 0.75
+  },
+  "fallback_basal_schedule": [
+    {"start": "00:00", "rate": 0.85},
+    {"start": "03:00", "rate": 1.0},
+    {"start": "10:00", "rate": 0.7},
+    {"start": "18:00", "rate": 0.9}
+  ]
+}
