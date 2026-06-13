@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import numpy as np
 
 from .config import LoopTunerConfig
+from .diagnostics import DataReport, build_report
 from .model import FitResult, fit as fit_model
 from .nightscout import NightscoutClient
 from .preprocess import Dataset, build_dataset
 from .profile import Profile, schedule_value_at
 from .recommend import Recommendations, build_recommendations
+
+log = logging.getLogger("looptuner")
 
 
 @dataclass
@@ -20,6 +24,7 @@ class PipelineResult:
     fit: FitResult
     recommendations: Recommendations
     profile: Profile
+    report: DataReport
 
 
 def _resolve_profile(cfg: LoopTunerConfig, profile_docs) -> Profile:
@@ -51,6 +56,8 @@ def run_from_records(
 ) -> PipelineResult:
     """Run the pipeline on already-loaded records (used by tests/synthetic)."""
     profile = _resolve_profile(cfg, profile_docs)
+    log.info("Using profile with %d basal, %d ISF, %d carb-ratio breakpoints",
+             len(profile.basal), len(profile.isf), len(profile.carb_ratio))
     dataset = build_dataset(
         entries, treatments, profile, cfg.grid, cfg.pharmacology
     )
@@ -61,13 +68,17 @@ def run_from_records(
         dataset, cfg.priors, cfg.sampler, scheduled_basal, progressbar=progressbar
     )
     recs = build_recommendations(fit, profile, cfg.safety)
-    return PipelineResult(dataset, fit, recs, profile)
+    report = build_report(entries, treatments, dataset, recs, fit)
+    return PipelineResult(dataset, fit, recs, profile, report)
 
 
 def run(cfg: LoopTunerConfig, use_cache: bool = True, progressbar: bool = True) -> PipelineResult:
     """Fetch from Nightscout and run the full pipeline."""
     client = NightscoutClient(cfg.nightscout)
+    log.info("Fetching up to %d days from %s", cfg.nightscout.days, cfg.nightscout.url)
     entries = client.entries(use_cache=use_cache)
     treatments = client.treatments(use_cache=use_cache)
     profile_docs = client.profile(use_cache=use_cache)
+    log.info("Fetched %d entries, %d treatments, %d profile doc(s)",
+             len(entries), len(treatments), len(profile_docs))
     return run_from_records(cfg, entries, treatments, profile_docs, progressbar)

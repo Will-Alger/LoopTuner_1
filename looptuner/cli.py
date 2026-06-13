@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 
 from .config import LoopTunerConfig
@@ -29,7 +30,10 @@ def _cmd_run(args) -> int:
     if args.profile:
         cfg.nightscout.profile_name = args.profile
     result = run(cfg, use_cache=not args.no_cache, progressbar=not args.quiet)
+    from .diagnostics import render_text
     print(render(result.recommendations))
+    print()
+    print(render_text(result.report))
     if args.json_out:
         _write_json(result, args.json_out)
     if args.plot:
@@ -142,7 +146,16 @@ def main(argv=None) -> int:
     p_demo.add_argument("--quiet", action="store_true")
     p_demo.set_defaults(func=_cmd_demo)
 
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="show step-by-step logging (records parsed, decisions, etc.)",
+    )
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if getattr(args, "verbose", False) else logging.WARNING,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     return args.func(args)
 
 

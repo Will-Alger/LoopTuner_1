@@ -53,6 +53,9 @@ PAGE = """<!doctype html>
  .summary{display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 18px}
  .card{background:#f7f8fb;border:1px solid #e2e6ef;border-radius:8px;padding:10px 14px;min-width:150px}
  .card b{display:block;font-size:20px} .muted{color:#778;font-size:13px}
+ pre{background:#0f1525;color:#d6e0f5;padding:12px;border-radius:8px;overflow:auto;font-size:12.5px;line-height:1.45}
+ .copybtn{background:#5a6478;margin:6px 0 2px}
+ details{margin:6px 0 18px} summary{cursor:pointer;font-weight:600;color:#2a5bd7}
  #status{margin:16px 0;font-weight:600}
  .spin{display:inline-block;width:14px;height:14px;border:2px solid #ccd;border-top-color:#2a5bd7;border-radius:50%;animation:s 0.8s linear infinite;vertical-align:-2px}
  @keyframes s{to{transform:rotate(360deg)}}
@@ -134,7 +137,10 @@ async function poll(id){
  st.innerHTML='<span class="spin"></span> Running — fetching data and sampling the model (this can take 30–120s)…';
  const r=await fetch('/status/'+id); const j=await r.json();
  if(j.state==='done'){st.textContent='Done.';go.disabled=false;render(j.result,id);}
- else if(j.state==='error'){st.textContent='Error: '+j.error;go.disabled=false;}
+ else if(j.state==='error'){
+   st.textContent='Error: '+j.error;go.disabled=false;
+   if(j.logs){out.innerHTML='<details open><summary>Run log (for debugging)</summary><pre>'+esc(j.logs)+'</pre></details>';}
+ }
  else setTimeout(()=>poll(id),1500);
 }
 function tbl(title,unit,blocks){
@@ -166,9 +172,25 @@ function render(d,id){
   `<tr><th>Maximum bolus</th><td>${d.max_bolus} U</td></tr>`+
   (d.suspend_threshold!=null?`<tr><th>Suspend threshold</th><td>${d.suspend_threshold} mg/dL</td></tr>`:'')+
   '<tr><th>Minimum delivery</th><td>0 U/hr (suspend on low)</td></tr></table>';
+ if(d.report_text){
+  h+='<h3>Data &amp; decision summary</h3>';
+  h+='<button class="copybtn" id="copybtn">Copy report + logs</button>';
+  h+='<pre id="summary">'+esc(d.report_text)+'</pre>';
+ }
+ if(d.logs){
+  h+='<details><summary>Show full run log</summary><pre>'+esc(d.logs)+'</pre></details>';
+ }
  h+='<div class="warn">'+d.disclaimer+'</div>';
  out.innerHTML=h;
+ const copyText=(d.report_text||'')+'\\n\\n=== run log ===\\n'+(d.logs||'');
+ const btn=document.getElementById('copybtn');
+ if(btn) btn.onclick=async()=>{
+   try{await navigator.clipboard.writeText(copyText);btn.textContent='Copied!';}
+   catch(e){btn.textContent='Copy failed — select manually';}
+   setTimeout(()=>btn.textContent='Copy report + logs',1600);
+ };
 }
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function card(t,v){return `<div class="card"><span class="muted">${t}</span><b>${v}</b></div>`;}
 </script>
 </body></html>"""
@@ -234,20 +256,39 @@ def run():
 
 
 def _worker(job_id: str, cfg: LoopTunerConfig):
+    import io
+    import logging
+    from .diagnostics import render_text
+
+    # Capture this run's "thought process" logs so the browser can show/copy them.
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S"))
+    logger = logging.getLogger("looptuner")
+    prev_level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
     try:
         result = run_pipeline(cfg, use_cache=False, progressbar=False)
         from .plots import render_png
         png = render_png(result.fit, result.profile, result.recommendations)
-        _JOBS[job_id] = {
-            "state": "done",
-            "result": _serialize(result.recommendations),
-            "png": png,
-        }
+        payload = _serialize(result.recommendations, result.report)
+        payload["report_text"] = render_text(result.report)
+        payload["logs"] = buf.getvalue()
+        _JOBS[job_id] = {"state": "done", "result": payload, "png": png}
     except Exception as err:  # surface a readable message to the browser
-        _JOBS[job_id] = {"state": "error", "error": f"{type(err).__name__}: {err}"}
+        _JOBS[job_id] = {
+            "state": "error",
+            "error": f"{type(err).__name__}: {err}",
+            "logs": buf.getvalue(),
+        }
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(prev_level)
 
 
-def _serialize(recs) -> dict:
+def _serialize(recs, report=None) -> dict:
+    from dataclasses import asdict
     return {
         "summary": recs.summary,
         "max_basal": recs.max_basal,
@@ -256,6 +297,7 @@ def _serialize(recs) -> dict:
         "isf": condense_blocks(recs.isf),
         "carb_ratio": condense_blocks(recs.carb_ratio),
         "basal": condense_blocks(recs.basal),
+        "report": asdict(report) if report is not None else None,
         "disclaimer": DISCLAIMER,
     }
 
@@ -280,6 +322,12 @@ def plot(job_id):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765):
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     print(f"LoopTuner UI running at http://{host}:{port}  (Ctrl-C to stop)")
     app.run(host=host, port=port, threaded=True)
 

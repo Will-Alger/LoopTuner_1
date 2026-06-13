@@ -50,7 +50,9 @@ class Recommendations:
 
 
 def _round_to(x: float, step: float) -> float:
-    return round(x / step) * step
+    # round(x/step)*step reintroduces binary-float noise (e.g. 1.2000000000002);
+    # round again to kill it, to more decimals than any sane step needs.
+    return round(round(x / step) * step, 6)
 
 
 def _current_at_hour(schedule, hour: int) -> Optional[float]:

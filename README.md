@@ -117,7 +117,15 @@ recommended for each setting (with credible-interval bands and markers on
 data-supported changes), then ISF, carb-ratio, and basal tables (changes the
 data supports are highlighted) plus suggested safety limits.
 
-From the CLI, add `--plot chart.png` to `run` to save the same figure. The
+From the CLI, add `--plot chart.png` to `run` to save the same figure.
+
+After every run the UI shows a **Data & decision summary** (records parsed,
+analysis windows, and a per-setting breakdown of how many hours were changed
+vs. left consistent vs. too-sparse) with a **Copy report + logs** button, plus a
+collapsible full run log. This is the place to look when it suggests few or no
+changes — usually it means your settings already agree with the data. From the
+CLI the same summary prints after the recommendations; add `-v` for live
+step-by-step logging. The
 UI binds to localhost only; your secret is held in memory for the Nightscout
 call and never written to disk or logged.
 
